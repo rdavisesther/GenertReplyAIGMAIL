@@ -26,7 +26,6 @@ export default async function handler(req, res) {
     const reply = result.response.text();
 
     return res.status(200).json({ reply });
-
   } catch (error) {
     return res.status(500).json({
       error: error.message || "AI generation failed"
