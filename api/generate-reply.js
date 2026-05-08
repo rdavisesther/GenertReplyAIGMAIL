@@ -1,170 +1,83 @@
-let lastRequestTime = 0;
+function requestAI(prompt, callback) {
 
-export default async function handler(req, res) {
+  var xhr = new XMLHttpRequest();
 
-  try {
+  xhr.open("POST", API_URL, true);
 
-    if (req.method !== "POST") {
-      return res.status(405).json({
-        error: "Method not allowed"
-      });
-    }
+  xhr.setRequestHeader(
+    "Content-Type",
+    "application/json"
+  );
 
-    // =========================
-    // SIMPLE COOLDOWN SYSTEM
-    // =========================
+  xhr.onreadystatechange = function () {
 
-    var now = Date.now();
-    var cooldown = 15000; // 15 seconds
+    if (xhr.readyState === 4) {
 
-    if (now - lastRequestTime < cooldown) {
+      var responseText = xhr.responseText || "";
 
-      var remaining = Math.ceil(
-        (cooldown - (now - lastRequestTime)) / 1000
-      );
+      // EMPTY RESPONSE
+      if (!responseText) {
 
-      return res.status(429).json({
-        error:
-          "Please wait " +
-          remaining +
-          " seconds before generating another reply."
-      });
-    }
+        callback(
+          "Empty server response.",
+          null
+        );
 
-    lastRequestTime = now;
-
-    // =========================
-    // API KEY
-    // =========================
-
-    var apiKey = process.env.GROQ_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({
-        error: "GROQ_API_KEY is missing"
-      });
-    }
-
-    // =========================
-    // PROMPT
-    // =========================
-
-    var prompt =
-      req.body && req.body.prompt
-        ? req.body.prompt
-        : "";
-
-    if (!prompt) {
-      return res.status(400).json({
-        error: "Prompt is required"
-      });
-    }
-
-    // limit prompt size
-    prompt = prompt.substring(0, 2500);
-
-    // =========================
-    // GROQ REQUEST
-    // =========================
-
-    var response = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": "Bearer " + apiKey,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-
-          messages: [
-            {
-              role: "system",
-              content:
-                "You write short, natural, human-like email replies. No subject line. No signature. No explanation."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-
-          temperature: 0.7,
-          max_tokens: 350
-        })
+        return;
       }
+
+      var data = null;
+
+      try {
+
+        data = JSON.parse(responseText);
+
+      } catch (e) {
+
+        console.log("RAW RESPONSE:", responseText);
+
+        callback(
+          "Server returned invalid JSON.",
+          null
+        );
+
+        return;
+      }
+
+      // API ERROR
+      if (
+        xhr.status !== 200 ||
+        (data && data.error)
+      ) {
+
+        callback(
+          data.error || "API error",
+          null
+        );
+
+        return;
+      }
+
+      // SUCCESS
+      callback(
+        null,
+        data.reply || ""
+      );
+    }
+  };
+
+  xhr.onerror = function () {
+
+    callback(
+      "Network error.",
+      null
     );
+  };
 
-    var data = await response.json();
-
-    // =========================
-    // RATE LIMIT
-    // =========================
-
-    if (response.status === 429) {
-
-      return res.status(429).json({
-        error:
-          "AI rate limit reached. Please wait 20-30 seconds and try again."
-      });
-    }
-
-    // =========================
-    // OTHER API ERRORS
-    // =========================
-
-    if (!response.ok) {
-
-      return res.status(response.status).json({
-        error:
-          data &&
-          data.error &&
-          data.error.message
-            ? data.error.message
-            : "Groq API error"
-      });
-    }
-
-    // =========================
-    // GET REPLY
-    // =========================
-
-    var reply = "";
-
-    if (
-      data &&
-      data.choices &&
-      data.choices[0] &&
-      data.choices[0].message &&
-      data.choices[0].message.content
-    ) {
-
-      reply =
-        data.choices[0].message.content;
-    }
-
-    if (!reply) {
-
-      return res.status(500).json({
-        error: "Empty response from AI"
-      });
-    }
-
-    // =========================
-    // SUCCESS
-    // =========================
-
-    return res.status(200).json({
-      reply: reply
-    });
-
-  } catch (error) {
-
-    return res.status(500).json({
-      error:
-        error.message || "Server error"
-    });
-  }
+  xhr.send(
+    JSON.stringify({
+      prompt: prompt
+    })
+  );
 }
-```
+
